@@ -30,51 +30,97 @@ void testaRam(){
     
 }
 
-//testando cpu
-void testaCpu(){
+#include <stdio.h>
+#include <stdlib.h>
+#include "cpu.h"
+#include "ram.h"
+#include "instrucao.h"
 
-    printf("TESTA FUNCIONALIDADESD DA CPU\n\n");
-    // Criar RAM com 3 posições
+void testaCpu() {
+    printf("TESTA FUNCIONALIDADES DA CPU (VIA OPCODES)\n\n");
+
+    // 1. Criar Hardware (RAM vazia e CPU)
     Ram ram;
-    Ram_Criar(&ram, 10);
-
-    // Inicializar a RAM com valores fixos
-    Ram_setDado(&ram, 0, 7);   // RAM[0] = 7
-    Ram_setDado(&ram, 1, 3);   // RAM[1] = 3
-    Ram_setDado(&ram, 2, 0);   // RAM[2] será o resultado da soma
-
-    // Criar CPU
+    Ram_Criar(&ram, 10); // Cria RAM vazia (tudo 0)
     Cpu* cpu = CPU_criar();
 
-    // Cria um pequeno programa de soma
-    // Instruções:
-    // 1) SOMA RAM[0] + RAM[1] -> RAM[2]
-    // 2) HALT
-    Instrucao programaSoma[] = {
-        Instrucao_criar(0, 0, 1, 2),   // soma RAM[0] + RAM[1] → RAM[2]
-        Instrucao_criar(-1, 0, 0, 0)   // halt
-    };
-
-    // Carregar programa na CPU
-    CPU_setPrograma(cpu, programaSoma);
-    // Executar programa
-    CPU_iniciar(cpu, &ram);
-    // Imprimir ram
-    Ram_Imprimir(&ram);
-
-    //criando pequeno programa de subtração com os endereços 0,1 e 2
-    Instrucao programaSubtracao[] = {
-        Instrucao_criar(1, 0, 1, 2),
-        Instrucao_criar(-1,0,0,0)
-    };
-
-    // Carregar programa na CPU
-    CPU_setPrograma(cpu, programaSubtracao);
-    // Executar programa
-    CPU_iniciar(cpu, &ram);
-    // Imprimir ram
-    Ram_Imprimir(&ram);
+    // ----------------------------------------------------------------
+    // TESTE 1: SOMA (7 + 3)
+    // ----------------------------------------------------------------
+    printf("--- Iniciando Teste de Soma ---\n");
     
+    Instrucao programaSoma[] = {
+        // --- PREPARAÇÃO DOS DADOS (Substitui Ram_setDado) ---
+        // Colocar 7 na RAM[0]
+        Instrucao_criar(4, 1, 7, 0),   // Op 4: Reg1 = 7 (Imediato)
+        Instrucao_criar(2, 1, 0, 0),   // Op 2: RAM[0] = Reg1
+        
+        // Colocar 3 na RAM[1]
+        Instrucao_criar(4, 1, 3, 0),   // Op 4: Reg1 = 3 (Imediato)
+        Instrucao_criar(2, 1, 1, 0),   // Op 2: RAM[1] = Reg1
+
+        // --- OPERAÇÃO ---
+        // Op 0: RAM[0] + RAM[1] -> RAM[2]
+        Instrucao_criar(0, 0, 1, 2),   
+
+        // --- EXTRAÇÃO DO RESULTADO (Substitui Ram_getDado) ---
+        // Trazer o resultado da RAM[2] para Reg1
+        Instrucao_criar(3, 1, 2, 0),   // Op 3: Reg1 = RAM[2]
+        
+        // Gravar Reg1 na própria instrução (para o C ler depois)
+        Instrucao_criar(5, 1, -1, 0),  // Op 5: Reg1 -> Instrução.add2
+
+        // --- FIM ---
+        Instrucao_criar(-1, 0, 0, 0)
+    };
+
+    // Executar
+    CPU_reset(cpu);
+    CPU_setPrograma(cpu, programaSoma);
+    CPU_iniciar(cpu, &ram);
+
+    // Verificação
+    // O resultado ficou gravado na instrução de índice 6 (onde estava o Opcode 5), no campo add2
+    int resultadoSoma = programaSoma[6].add2;
+    printf("Resultado da Soma (7 + 3): %d\n\n", resultadoSoma);
+
+
+    // ----------------------------------------------------------------
+    // TESTE 2: SUBTRAÇÃO (7 - 3)
+    // ----------------------------------------------------------------
+    printf("--- Iniciando Teste de Subtracao ---\n");
+
+    // Nota: Como a RAM persiste, o 7 e o 3 já estão lá. 
+    // Mas para ser purista e independente, vamos carregar de novo (ou outros valores).
+    
+    Instrucao programaSub[] = {
+        // Setup (Garanto que 7 e 3 estão lá)
+        Instrucao_criar(4, 1, 7, 0),   // Reg1 = 7
+        Instrucao_criar(2, 1, 0, 0),   // RAM[0] = 7
+        Instrucao_criar(4, 1, 3, 0),   // Reg1 = 3
+        Instrucao_criar(2, 1, 1, 0),   // RAM[1] = 3
+
+        // Operação: RAM[0] - RAM[1] -> RAM[2]
+        Instrucao_criar(1, 0, 1, 2),   // Op 1: Subtração
+
+        // Extração
+        Instrucao_criar(3, 1, 2, 0),   // Op 3: Reg1 = RAM[2]
+        Instrucao_criar(5, 1, -1, 0),  // Op 5: Reg1 -> Instrução.add2 (Output)
+
+        Instrucao_criar(-1, 0, 0, 0)
+    };
+
+    CPU_reset(cpu);
+    CPU_setPrograma(cpu, programaSub);
+    CPU_iniciar(cpu, &ram);
+
+    // O Opcode 5 estava no índice 6 do vetor programaSub
+    int resultadoSub = programaSub[6].add2;
+    printf("Resultado da Subtracao (7 - 3): %d\n", resultadoSub);
+
+    // Opcional: Imprimir a RAM inteira só para conferência final visual
+    // Ram_Imprimir(&ram); 
+
     // Liberar memória
     CPU_liberar(cpu);
     Ram_Liberar(&ram);
@@ -83,55 +129,21 @@ void testaCpu(){
 int main(){
 
     //testando ram
-    testaRam();
+    //testaRam();
 
     testaCpu();
 
     // Criar RAM com tamanho suficiente
     Ram ramProgramas;
-    Ram_Criar(&ramProgramas, 20);
+    Ram_Criar(&ramProgramas, 5);
 
     // Criar CPU
     Cpu* cpuProgramas = CPU_criar();
 
     // Teste 1: 5 × 3
-    printf("\n=== Teste 1: 5 × 3 ===\n");
-    programaMult(&ramProgramas, cpuProgramas, 5, 3);
-    //Ram_Imprimir(&ramProgramas);    
-
-    printf("\n=== Teste 2: FATORIAL ===\n");
-    programaFat(&ramProgramas, cpuProgramas, 5);
-    //Ram_Imprimir(&ramProgramas);
-    
-    printf("\n=== Teste 3: Fibonnacci ===\n");
-    programaFibonacci(&ramProgramas, cpuProgramas, 10);
-    //Ram_Imprimir(&ramProgramas); 
-
-    printf("\n=== Teste 4: SOMATORIO ===\n");
-    programaSomatorio(&ramProgramas, cpuProgramas, 5);
-
-    printf("\n=== Teste 5: SOMATORIO ===\n");
-    programaPotencia(&ramProgramas, cpuProgramas, 2, 3);
-    
-    printf("\n=== Teste 6: MAIOR NUMERO ===\n");
-     int maior = programaMaiorValor(&ramProgramas, cpuProgramas, 25, 10);
-    printf("Maior valor encontrado = %d\n", maior);
-
-   printf("\n=== Teste 7: MENOR NUMERO ===\n");
-    int menor = programaMenorValor(&ramProgramas, cpuProgramas, 50, 40);
-    printf("Menor valor encontrado = %d\n", menor);
-
-    printf("\n=== Teste 8: DIVISAO ===\n");
-    programaDivisao(&ramProgramas, cpuProgramas, 50, 5);
-
-    printf("\n=== Teste 9: media ===\n");
-
-    int dados_para_media[] = {15, 25, 30, 10}; // Exemplo: 15 + 25 + 30 + 10 = 80
-    int numero_de_elementos = 4;              // Total de elementos
-    programaMedia(&ramProgramas, cpuProgramas, dados_para_media, numero_de_elementos);
-
-     printf("\n=== Teste 10: MDC ===\n");
-     programaMDC(&ramProgramas, cpuProgramas, 48, 18);
+    printf("\n=== Teste 1: MULTIPLICACAO ===\n");
+    int res2 = multiplicacao(cpuProgramas, &ramProgramas, 10, 10);
+    printf("Resultado: %d\n", res2);
 
 
   return 0;

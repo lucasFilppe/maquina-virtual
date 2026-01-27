@@ -19,6 +19,7 @@ void CPU_liberar(Cpu* cpu);
 void CPU_setPrograma(Cpu* cpu, Instrucao* programaAux);
 void CPU_iniciar(Cpu* cpu, Ram* ram);
 void CPU_reset(Cpu* cpu);
+int CPU_getRegistrador(Cpu *cpu, int indice);
 
 
 #endif

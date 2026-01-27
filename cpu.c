@@ -59,6 +59,7 @@ void CPU_setPrograma(Cpu* cpu, Instrucao* programaAux) {
     }
 }
 
+
 void CPU_iniciar(Cpu* cpu, Ram* ram) {
     if(cpu == NULL || ram == NULL || cpu->programa == NULL) {
         printf("Parametros invalidos para CPU_iniciar\n");

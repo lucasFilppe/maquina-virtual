@@ -3,53 +3,78 @@
 #include "cpu.h"
 #include <stdio.h>
 
-// programa de multiplicação
-void programaMult(Ram *ram, Cpu *cpu, int x, int y)
-{
-    // Colocar o multiplicando (x) na RAM[1] com 3 instruçoes
-    Instrucao carregar_x[3] = {
-        Instrucao_criar(4, 1, x, 0), // registrador1 = x
-        Instrucao_criar(2, 1, 1, 0), // RAM[1] = registrador1
-        Instrucao_criar(-1, 0, 0, 0)};
+#include <stdio.h>
+#include "cpu.h"
+#include "ram.h"
+#include "instrucao.h"
+
+// Função que realiza a multiplicação A * B na máquina hipotética
+// Retorna o resultado inteiro calculado pela CPU
+int multiplicacao(Cpu* cpu, Ram* ram, int multiplicando, int multiplicador) {
+    
+    // MAPA DE MEMÓRIA DESTA FUNÇÃO:
+    // RAM[0] = Multiplicando (Valor de X)
+    // RAM[1] = Acumulador / Resultado
+    
+    // ----------------------------------------------------------------
+    // PASSO 1: SETUP (Carregar dados iniciais)
+    // ----------------------------------------------------------------
+    // Carrega 'multiplicando' na RAM[0] e zera a RAM[1] (Resultado)
+    Instrucao setup[] = {
+        // RAM[0] = multiplicando
+        Instrucao_criar(4, 1, multiplicando, 0), // Reg1 = x
+        Instrucao_criar(2, 1, 0, 0),             // RAM[0] = Reg1
+        
+        // RAM[1] = 0 (Inicializando acumulador)
+        Instrucao_criar(4, 1, 0, 0),             // Reg1 = 0
+        Instrucao_criar(2, 1, 1, 0),             // RAM[1] = Reg1
+        
+        Instrucao_criar(-1, 0, 0, 0)             // HALT
+    };
+    
     CPU_reset(cpu);
-    CPU_setPrograma(cpu, carregar_x);
+    CPU_setPrograma(cpu, setup);
     CPU_iniciar(cpu, ram);
 
-    // Colocar o multiplicador (y) na RAM[2]
-    Instrucao carregar_y[3] = {
-        Instrucao_criar(4, 1, y, 0), // registrador1 = y
-        Instrucao_criar(2, 1, 2, 0), // RAM[2] = registrador1
-        Instrucao_criar(-1, 0, 0, 0)};
-    CPU_reset(cpu);
-    CPU_setPrograma(cpu, carregar_y);
-    CPU_iniciar(cpu, ram);
-
-    // Inicializar acumulador (RAM[3]) = 0
-    Instrucao init_resultado[3] = {
-        Instrucao_criar(4, 1, 0, 0), // registrador1 = 0
-        Instrucao_criar(2, 1, 3, 0), // RAM[3] = registrador1
-        Instrucao_criar(-1, 0, 0, 0)};
-    CPU_reset(cpu);
-    CPU_setPrograma(cpu, init_resultado);
-    CPU_iniciar(cpu, ram);
-
-    // Loop: repetir y vezes → resultado += x
-    for (int i = 0; i < y; i++)
-    {
-        // Somar RAM[3] + RAM[1] → novo resultado na RAM[3]
-        Instrucao soma[2] = {
-            Instrucao_criar(0, 3, 1, 3), // RAM[3] = RAM[3] + RAM[1]
-            Instrucao_criar(-1, 0, 0, 0)};
-        CPU_reset(cpu);
+    // ----------------------------------------------------------------
+    // PASSO 2: CÁLCULO (Somas Sucessivas)
+    // ----------------------------------------------------------------
+    // Repete a soma 'multiplicador' vezes
+    // RAM[1] = RAM[1] + RAM[0]
+    
+    for (int i = 0; i < multiplicador; i++) {
+        Instrucao soma[] = {
+            // Op 0: Soma Acumulador (RAM[1]) + Valor (RAM[0]) -> Salva em Acumulador (RAM[1])
+            Instrucao_criar(0, 1, 0, 1), 
+            Instrucao_criar(-1, 0, 0, 0)
+        };
+        
+        CPU_reset(cpu); // Reinicia PC para rodar a soma novamente
         CPU_setPrograma(cpu, soma);
         CPU_iniciar(cpu, ram);
     }
 
-    int resultado = Ram_getDado(ram, 3);
-    printf("Resultado de %d x %d = %d\n", x, y, resultado);
+    // ----------------------------------------------------------------
+    // PASSO 3: EXTRAÇÃO (Output)
+    // ----------------------------------------------------------------
+    // Pega o valor final de RAM[1] e devolve via instrução
+    
+    Instrucao output[] = {
+        Instrucao_criar(3, 1, 1, 0),   // Op 3: Reg1 = RAM[1] (Resultado)
+        Instrucao_criar(5, 1, -1, 0),  // Op 5: Reg1 -> Instrução.add2 (Escreve aqui)
+        Instrucao_criar(-1, 0, 0, 0)
+    };
+    
+    CPU_reset(cpu);
+    CPU_setPrograma(cpu, output);
+    CPU_iniciar(cpu, ram);
+    
+    // Lê o valor escrito pela CPU na instrução de índice 1
+    int resultado = output[1].add2;
+    
+    return resultado;
 }
-
-// programa de fatorial usando programaMult
+/* programa de fatorial usando programaMult
 void programaFat(Ram *ram, Cpu *cpu, int n)
 {
     // Inicializar RAM[1] = 1 (resultado parcial)
@@ -430,59 +455,237 @@ void programaMedia(Ram *ram, Cpu *cpu, int *numeros, int count){
 // Calcula o Máximo Divisor Comum de A e B (resultado em RAM[2])
 void programaMDC(Ram *ram, Cpu *cpu, int a, int b)
 {
-    // 1. Inicializar RAM[0] = A e RAM[1] = B
-    Ram_setDado(ram, 0, a);
-    Ram_setDado(ram, 1, b);
-    
-    int tempA = a;
-    int tempB = b;
+    // -----------------------------
+    // 1. Gravar A e B na RAM
+    // RAM[0] = A, RAM[1] = B
+    // -----------------------------
+    Instrucao initAB[5] = {
+        Instrucao_criar(4, 1, a, 0),  // registrador1 = A
+        Instrucao_criar(2, 1, 0, 0),  // RAM[0] = registrador1
+        Instrucao_criar(4, 1, b, 0),  // registrador1 = B
+        Instrucao_criar(2, 1, 1, 0),  // RAM[1] = registrador1
+        Instrucao_criar(-1, 0, 0, 0)  // HALT
+    };
 
-    printf("Calculando MDC de %d e %d:\n", a, b);
+    CPU_reset(cpu);
+    CPU_setPrograma(cpu, initAB);
+    CPU_iniciar(cpu, ram);
 
-    // Loop: continua enquanto A != B
-    while (tempA != tempB)
+    printf("Calculando MDC de %d e %d...\n", a, b);
+
+    int tempA, tempB;
+
+    // -----------------------------
+    // 2. Loop principal (controlado pelo C)
+    // -----------------------------
+    while (1)
     {
-        // operação de subtração
+        // 2a. Ler A e B da RAM
+        // Usamos Ram_getDado diretamente para evitar CPU_getRegistrador
+        tempA = Ram_getDado(ram, 0); // Ler o valor atual de A (RAM[0])
+        tempB = Ram_getDado(ram, 1); // Ler o valor atual de B (RAM[1])
 
+        // 2b. Condição de parada: A == B
+        if (tempA == tempB)
+            break;
+
+        // -----------------------------
+        // 3. Subtrair usando CPU
+        // -----------------------------
         if (tempA > tempB)
         {
-            // A > B: RAM[0] = RAM[0] - RAM[1]
-            Instrucao subtracao_a[2] = {
-                Instrucao_criar(1, 0, 1, 0), // opcode 1 (SUB): RAM[0] = RAM[0] - RAM[1]
-                Instrucao_criar(-1, 0, 0, 0)};
+            // RAM[0] = RAM[0] - RAM[1]
+            Instrucao subA[2] = {
+                Instrucao_criar(1, 0, 1, 0),   // SUB RAM[0] = RAM[0] - RAM[1]
+                Instrucao_criar(-1, 0, 0, 0)
+            };
             CPU_reset(cpu);
-            CPU_setPrograma(cpu, subtracao_a);
+            CPU_setPrograma(cpu, subA);
             CPU_iniciar(cpu, ram);
         }
-        else // B > A
+        else // tempB > tempA
         {
-            // B > A: RAM[1] = RAM[1] - RAM[0]
-            Instrucao subtracao_b[2] = {
-                Instrucao_criar(1, 1, 0, 1), // opcode 1 (SUB): RAM[1] = RAM[1] - RAM[0]
-                Instrucao_criar(-1, 0, 0, 0)};
+            // RAM[1] = RAM[1] - RAM[0]
+            Instrucao subB[2] = {
+                Instrucao_criar(1, 1, 0, 1),   // SUB RAM[1] = RAM[1] - RAM[0]
+                Instrucao_criar(-1, 0, 0, 0)
+            };
             CPU_reset(cpu);
-            CPU_setPrograma(cpu, subtracao_b);
+            CPU_setPrograma(cpu, subB);
             CPU_iniciar(cpu, ram);
         }
-
-        // Atualiza as variáveis de controle do loop lendo da RAM
-        tempA = Ram_getDado(ram, 0);
-        tempB = Ram_getDado(ram, 1);
-        // printf("  Passo: A=%d, B=%d\n", tempA, tempB); // Opcional para debug
     }
 
-    // 2. Copiar o resultado (RAM[0] ou RAM[1]) para RAM[2]
+    // -----------------------------
+    // 4. Copiar resultado (RAM[0] ou RAM[1]) para RAM[2]
+    // -----------------------------
+    // Já que A == B na saída do loop, o MDC é o valor em RAM[0] (ou RAM[1]).
+    // Vamos usar o valor de RAM[0] e copiá-lo para a posição de resultado RAM[2].
+    
+    Instrucao copiaResultado[4] = {
+        Instrucao_criar(3, 1, 0, 0),  // registrador1 = RAM[0] (ou RAM[1] - tanto faz)
+        Instrucao_criar(2, 1, 2, 0),  // RAM[2] = registrador1
+        Instrucao_criar(-1, 0, 0, 0)
+    };
+
+    CPU_reset(cpu);
+    CPU_setPrograma(cpu, copiaResultado);
+    CPU_iniciar(cpu, ram);
+
+    // -----------------------------
+    // 5. Ler e imprimir o resultado final de RAM[2]
+    // (Seguindo o padrão de leitura da multiplicação)
+    // -----------------------------
+    int resultadoMDC = Ram_getDado(ram, 2);
+    printf("  MDC = %d\n", resultadoMDC);
+}
+
+
+void programaElevacaoQuadrado(Ram *ram, Cpu *cpu, int n)
+{
+    printf("Calculando o Quadrado de %d:\n", n);
+
+    // Chama a rotina de multiplicação: n * n
+    // O programaMult guarda o resultado em RAM[3].
+    //programaMultiplicacao(ram, cpu, n, n); 
+
+    // COPIA PELA CPU: Copiar RAM[3] (Produto) para RAM[4] (Resultado Final)
     Instrucao copia_resultado[3] = {
-        Instrucao_criar(3, 1, 0, 0), // registrador1 = RAM[0]
-        Instrucao_criar(2, 1, 2, 0), // RAM[2] = registrador1
-        Instrucao_criar(-1, 0, 0, 0)};
+        Instrucao_criar(3, 1, 3, 0), // Opcode 3: registrador1 = RAM[3]
+        Instrucao_criar(2, 1, 4, 0), // Opcode 2: RAM[4] = registrador1
+        Instrucao_criar(-1, 0, 0, 0)}; // HALT
+        
     CPU_reset(cpu);
     CPU_setPrograma(cpu, copia_resultado);
     CPU_iniciar(cpu, ram);
 
-    printf("  MDC (RAM[2]) = %d\n", Ram_getDado(ram, 2));
+    int resultado = Ram_getDado(ram, 4);
+    printf("Resultado de %d^2 = %d (em RAM[4])\n", n, resultado);
 }
 
+void programaRaizQuadrada(Ram *ram, Cpu *cpu, int n)
+{
+    if (n < 0) {
+        printf("Erro: Raiz quadrada de número negativo não suportada.\n");
+        return;
+    }
+    
+    // 1. SETUP: Inicializar RAM
+    Ram_setDado(ram, 0, n); // RAM[0] = N (Número a ter a raiz calculada)
+
+    // Inicializar RAM[1] = 1 (Primeiro ímpar)
+    Instrucao init_impar[3] = {
+        Instrucao_criar(4, 1, 1, 0), // registrador1 = 1
+        Instrucao_criar(2, 1, 1, 0), // RAM[1] = registrador1
+        Instrucao_criar(-1, 0, 0, 0)};
+    CPU_reset(cpu); CPU_setPrograma(cpu, init_impar); CPU_iniciar(cpu, ram);
+
+    // Inicializar RAM[2] = 2 (Constante para incremento)
+    Instrucao init_dois[3] = {
+        Instrucao_criar(4, 1, 2, 0), // registrador1 = 2
+        Instrucao_criar(2, 1, 2, 0), // RAM[2] = registrador1
+        Instrucao_criar(-1, 0, 0, 0)};
+    CPU_reset(cpu); CPU_setPrograma(cpu, init_dois); CPU_iniciar(cpu, ram);
+    
+    // Inicializar RAM[3] = 0 (Contador da Raiz / Resultado)
+    Instrucao init_resultado[3] = {
+        Instrucao_criar(4, 1, 0, 0), // registrador1 = 0
+        Instrucao_criar(2, 1, 3, 0), // RAM[3] = registrador1
+        Instrucao_criar(-1, 0, 0, 0)};
+    CPU_reset(cpu); CPU_setPrograma(cpu, init_resultado); CPU_iniciar(cpu, ram);
+
+
+    printf("Calculando Raiz Quadrada de %d:\n", n);
+
+    // LOOP DE CONTROLE (feito em C)
+    // O loop continua enquanto N (RAM[0]) for maior ou igual ao ímpar atual (RAM[1])
+    while (Ram_getDado(ram, 0) >= Ram_getDado(ram, 1))
+    {
+        // 2a. SUBTRAÇÃO PELA CPU: N = N - Ímpar
+        // RAM[0] = RAM[0] - RAM[1]
+        Instrucao subtracao[2] = {
+            Instrucao_criar(1, 0, 1, 0), // Opcode 1 (SUB): RAM[0] = RAM[0] - RAM[1]
+            Instrucao_criar(-1, 0, 0, 0)}; // HALT
+        CPU_reset(cpu); CPU_setPrograma(cpu, subtracao); CPU_iniciar(cpu, ram);
+
+        // 2b. INCREMENTA O CONTADOR (Raiz): Resultado = Resultado + 1
+        // RAM[3] = RAM[3] + RAM[2] (Note: RAM[2] = 2, mas faremos o incremento de 1 por fora)
+        
+        // Usaremos o registrador para carregar 1 e somar, já que RAM[2] = 2
+        Instrucao incrementa_resultado[4] = {
+            Instrucao_criar(4, 1, 1, 0), // registrador1 = 1
+            Instrucao_criar(3, 2, 3, 0), // registrador2 = RAM[3] (Resultado)
+            Instrucao_criar(0, 1, 2, 3), // Opcode 0 (ADD): RAM[3] = registrador1 + registrador2 (Resultado + 1)
+            Instrucao_criar(-1, 0, 0, 0)}; // HALT
+        CPU_reset(cpu); CPU_setPrograma(cpu, incrementa_resultado); CPU_iniciar(cpu, ram);
+        
+        // 2c. INCREMENTA O ÍMPAR: Ímpar = Ímpar + 2
+        // RAM[1] = RAM[1] + RAM[2]
+        Instrucao incrementa_impar[2] = {
+            Instrucao_criar(0, 1, 2, 1), // Opcode 0 (ADD): RAM[1] = RAM[1] + RAM[2] (Impar + 2)
+            Instrucao_criar(-1, 0, 0, 0)}; // HALT
+        CPU_reset(cpu); CPU_setPrograma(cpu, incrementa_impar); CPU_iniciar(cpu, ram);
+    }
+    
+    // O RESULTADO FINAL ESTÁ EM RAM[3]
+    int resultado = Ram_getDado(ram, 3);
+    printf("Resultado de Raiz Quadrada (inteira) de %d = %d (em RAM[3])\n", n, resultado);
+}
+
+// Assume que as funções programaMultiplicacao, programaMDC e programaDivisao
+// estão disponíveis e funcionam conforme definido:
+// - programaMultiplicacao deixa o produto em RAM[3].
+// - programaMDC deixa o MDC em RAM[2].
+// - programaDivisao (RAM[0], RAM[1]) deixa o Quociente em RAM[2].
+
+void programaMMC(Ram *ram, Cpu *cpu, int a, int b)
+{
+    if (a == 0 || b == 0) {
+        printf("Erro: MMC não definido para números iguais a zero.\n");
+        return;
+    }
+    
+    printf("Calculando o MMC de %d e %d usando a fórmula (A * B) / MDC(A, B):\n", a, b);
+
+    // --- ETAPA 1: CALCULAR O PRODUTO P = A * B ---
+    // O programaMultiplicacao armazena o produto P em RAM[3].
+    programaMult(ram, cpu, a, b); 
+    int produto = Ram_getDado(ram, 3);
+    printf("  Produto (A * B) = %d\n", produto);
+
+
+    // --- ETAPA 2: CALCULAR O DIVISOR D = MDC(A, B) ---
+    // O programaMDC armazena o MDC D em RAM[2].
+    programaMDC(ram, cpu, a, b);
+    int mdc = Ram_getDado(ram, 2);
+    printf("  MDC(A, B) = %d\n", mdc);
+    
+    
+    // --- ETAPA 3: PREPARAR PARA A DIVISÃO MMC = P / D ---
+    
+    // 3a. MOVER o Dividendo P: RAM[3] (Produto) -> RAM[0]
+    Instrucao move_produto[3] = {
+        Instrucao_criar(3, 1, 3, 0), // Opcode 3: registrador1 = RAM[3] (Produto P)
+        Instrucao_criar(2, 1, 0, 0), // Opcode 2: RAM[0] = registrador1 (Novo Dividendo)
+        Instrucao_criar(-1, 0, 0, 0)};
+    CPU_reset(cpu); CPU_setPrograma(cpu, move_produto); CPU_iniciar(cpu, ram);
+    
+    // 3b. MOVER o Divisor D: RAM[2] (MDC) -> RAM[1]
+    Instrucao move_mdc[3] = {
+        Instrucao_criar(3, 1, 2, 0), // Opcode 3: registrador1 = RAM[2] (MDC D)
+        Instrucao_criar(2, 1, 1, 0), // Opcode 2: RAM[1] = registrador1 (Novo Divisor)
+        Instrucao_criar(-1, 0, 0, 0)};
+    CPU_reset(cpu); CPU_setPrograma(cpu, move_mdc); CPU_iniciar(cpu, ram);
+
+
+    // --- ETAPA 4: DIVISÃO PELA CPU MMC = RAM[0] / RAM[1] ---
+    // programaDivisao(Dividendo=RAM[0], Divisor=RAM[1]) deixa o Quociente (MMC) em RAM[2].
+    programaDivisao(ram, cpu, Ram_getDado(ram, 0), Ram_getDado(ram, 1)); 
+
+    int mmc_resultado = Ram_getDado(ram, 2);
+    printf("\nResultado Final:\n");
+    printf("  MMC (RAM[2]) = %d\n", mmc_resultado);
+}
 
 /*void carregarVetoresNaRAM(Ram *ram, int *vetorA, int *vetorB, int size)
 {
@@ -578,4 +781,3 @@ void programaSomaVetores(Ram *ram, Cpu *cpu, int size)
     printf("\n");
 }
     */
-

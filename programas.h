@@ -5,8 +5,8 @@
 #include"instrucao.h"
 #include"cpu.h"
 
-void programaMult(Ram* ram, Cpu* cpu, int multiplicando, int multiplicador);
-void programaFat(Ram* ram, Cpu* cpu, int fat);
+int multiplicacao(Cpu* cpu, Ram* ram,  int multiplicando, int multiplicador);
+/*void programaFat(Ram* ram, Cpu* cpu, int fat);
 void programaPotencia(Ram* ram, Cpu* cpu, int base, int expoente);
 void programaFibonacci(Ram* ram, Cpu* cpu, int n);
 void programaTaylor(Ram* ram, Cpu* cpu, int x, int n);
@@ -24,6 +24,6 @@ void programaMDC(Ram *ram, Cpu *cpu, int a, int b);
 
 void programaDiv(Ram* ram, Cpu* cpu, int dividendo, int divisor);
 void carregarVetoresNaRAM(Ram* ram, int* vetorA, int* vetorB, int size);
-void programaSomaVetores(Ram* ram, Cpu* cpu, int size);
+void programaSomaVetores(Ram* ram, Cpu* cpu, int size);*/
 
 #endif
