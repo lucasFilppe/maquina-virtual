@@ -133,18 +133,20 @@ int main(){
 
     testaCpu();
 
-    // Criar RAM com tamanho suficiente
+    //Criar RAM com tamanho suficiente
     Ram ramProgramas;
     Ram_Criar(&ramProgramas, 5);
 
-    // Criar CPU
+    //Criar CPU
     Cpu* cpuProgramas = CPU_criar();
 
     // Teste 1: 5 × 3
     printf("\n=== Teste 1: MULTIPLICACAO ===\n");
-    int res2 = multiplicacao(cpuProgramas, &ramProgramas, 10, 10);
-    printf("Resultado: %d\n", res2);
+    programaMult(&ramProgramas,cpuProgramas, 10, 10);
 
+
+    printf("Calculando Fatorial de %d...\n", 5);
+    programaFat(&ramProgramas, cpuProgramas, 5);
 
   return 0;
 }

@@ -10,7 +10,7 @@
 
 // Função que realiza a multiplicação A * B na máquina hipotética
 // Retorna o resultado inteiro calculado pela CPU
-int multiplicacao(Cpu* cpu, Ram* ram, int multiplicando, int multiplicador) {
+void programaMult( Ram* ram, Cpu* cpu, int multiplicando, int multiplicador) {
     
     // MAPA DE MEMÓRIA DESTA FUNÇÃO:
     // RAM[0] = Multiplicando (Valor de X)
@@ -72,7 +72,58 @@ int multiplicacao(Cpu* cpu, Ram* ram, int multiplicando, int multiplicador) {
     // Lê o valor escrito pela CPU na instrução de índice 1
     int resultado = output[1].add2;
     
-    return resultado;
+    printf("resultado %d\n", resultado);
+}
+
+
+void programaFat(Ram* ram, Cpu* cpu, int fat) {
+    
+    int j = 1;
+
+    // Loop de 1 até fat
+    for (int i = 1; i <= fat; i++) {
+        
+        // 1. Executa Multiplicação (Resultado fica na RAM[1])
+        programaMult(ram, cpu, j, i);
+
+        // 2. Extrai o resultado para atualizar 'j'
+        Instrucao trecho1[3];
+
+        // --- CORREÇÃO AQUI ---
+        // Antes estava (3, 1, 0, 0) -> Lia da RAM[0]
+        // Agora deve ser (3, 1, 1, 0) -> Lê da RAM[1] (Onde está o resultado)
+        trecho1[0] = Instrucao_criar(3, 1, 1, 0); 
+
+        // Exporta Reg1 para a instrução
+        trecho1[1] = Instrucao_criar(5, 1, -1, 0); 
+        trecho1[2] = Instrucao_criar(-1, 0, 0, 0);
+
+        CPU_reset(cpu);
+        CPU_setPrograma(cpu, trecho1);
+        CPU_iniciar(cpu, ram);
+
+        // Atualiza j com o resultado correto
+        j = trecho1[1].add2;
+        
+        // Debug para você ver o valor crescendo
+        printf("Fatorial parcial (passo %d): %d\n", i, j);
+    }
+
+    // --- Trecho final para exibir o resultado ---
+    Instrucao trecho2[3];
+
+    // --- CORREÇÃO AQUI TAMBÉM ---
+    // Ler da RAM[1] novamente
+    trecho2[0] = Instrucao_criar(3, 1, 1, 0); 
+    
+    trecho2[1] = Instrucao_criar(5, 1, -1, 0);
+    trecho2[2] = Instrucao_criar(-1, 0, 0, 0);
+
+    CPU_reset(cpu);
+    CPU_setPrograma(cpu, trecho2);
+    CPU_iniciar(cpu, ram);
+
+    printf("O resultado do fatorial eh: %d\n", trecho2[1].add2);
 }
 /* programa de fatorial usando programaMult
 void programaFat(Ram *ram, Cpu *cpu, int n)
