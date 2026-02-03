@@ -2,9 +2,9 @@
 #include <stdio.h>
 #include "cpu.h"
 #include "instrucao.h"
-#include "ram.h"
+#include "mmu.h" // <--- MUDANÇA: Agora incluímos a MMU
 
-//funçaõ que para cria uma CPu
+// A função de criação continua igual
 Cpu* CPU_criar() {
     Cpu *cpu = (Cpu*)malloc(sizeof(Cpu));
     if(cpu == NULL) {
@@ -26,123 +26,122 @@ void CPU_reset(Cpu* cpu) {
         printf("Erro: Ponteiro de CPU nulo em CPU_reset\n");
         return;
     }
-    
-    // Reseta registradores
     cpu->registrador1 = 0;
     cpu->registrador2 = 0;
-    
-    // Reseta contador de programa
     cpu->PC = 0;
-    
-    // Reseta estado de execução
     cpu->opcode = 0;
-    
-    // Não resetamos o ponteiro de programa pois ele é gerenciado externamente
-    // cpu->programa = NULL; // Não deve ser feito aqui!
 }
 
-//funão para liberar memoria da cpu
 void CPU_liberar(Cpu* cpu) {
     if(cpu != NULL) {
         free(cpu);
     }
 }
 
-/* @brief Define o ponteiro para o programa (conjunto de instruções) a ser executado pela CPU.
- * * Esta função atribui um novo array de instruções à estrutura da CPU.
- * * @param cpu Um ponteiro para a estrutura Cpu a ser configurada.
- * @param programaAux Um ponteiro para o array de estruturas Instrucao que representa o programa.
- */
 void CPU_setPrograma(Cpu* cpu, Instrucao* programaAux) {
     if(cpu != NULL) {
         cpu->programa = programaAux;
     }
 }
 
-
-void CPU_iniciar(Cpu* cpu, Ram* ram) {
-    if(cpu == NULL || ram == NULL || cpu->programa == NULL) {
+// --- MUDANÇA CRÍTICA AQUI ---
+// A CPU agora conversa com a MMU, não com a RAM direta
+void CPU_iniciar(Cpu* cpu, MMU* mmu) {
+    
+    if(cpu == NULL || mmu == NULL || cpu->programa == NULL) {
         printf("Parametros invalidos para CPU_iniciar\n");
         return;
     }
     
-     // Substituir reset manual por chamada à CPU_reset
-    CPU_reset(cpu);  // Usa a nova função de reset
+    CPU_reset(cpu);
     
     while(cpu->opcode != -1) {
         Instrucao inst = cpu->programa[cpu->PC];
-        cpu->opcode = inst.opcode;//atrubui os valor da instruçao opcode a cpu
+        cpu->opcode = inst.opcode;
         
         switch(cpu->opcode) {
             case -1: { // halt
                 printf("Programa terminou!!\n");
-                //Ram_Imprimir(ram);
                 break;
             }
             case 0: { // soma
-                cpu->registrador1 = Ram_getDado(ram, inst.add1);
-                cpu->registrador2 = Ram_getDado(ram, inst.add2);
+                // ANTES: Ram_getDado(ram, inst.add1);
+                // AGORA: A MMU procura nas Caches L1->L2->L3->RAM
+                cpu->registrador1 = MMU_buscar(mmu, inst.add1);
+                cpu->registrador2 = MMU_buscar(mmu, inst.add2);
+                
                 cpu->registrador1 += cpu->registrador2;
-                Ram_setDado(ram, inst.add3, cpu->registrador1);
-                printf("Inst sum -> RAM posicao %d com conteudo %d\n", inst.add3, cpu->registrador1);
+                
+                // ANTES: Ram_setDado(ram, inst.add3, ...);
+                // AGORA: A MMU decide onde escrever (Write-Back ou Write-Through)
+                MMU_escrever(mmu, inst.add3, cpu->registrador1);
+                
+                //printf("Inst sum -> MMU escreveu na posicao %d o valor %d\n", inst.add3, cpu->registrador1);
                 cpu->PC++;
                 break;
             }
             case 1: { // subtrai
-                cpu->registrador1 = Ram_getDado(ram, inst.add1);
-                cpu->registrador2 = Ram_getDado(ram, inst.add2);
+                // Solicita dados à MMU
+                cpu->registrador1 = MMU_buscar(mmu, inst.add1);
+                cpu->registrador2 = MMU_buscar(mmu, inst.add2);
+                
                 cpu->registrador1 -= cpu->registrador2;
-                Ram_setDado(ram, inst.add3, cpu->registrador1);
-                printf("Inst sub -> RAM posicao %d com conteudo %d\n", inst.add3, cpu->registrador1);
+                
+                // Salva via MMU
+                MMU_escrever(mmu, inst.add3, cpu->registrador1);
+                
+                //printf("Inst sub -> MMU escreveu na posicao %d o valor %d\n", inst.add3, cpu->registrador1);
                 cpu->PC++;
                 break;
             }
-            case 2: { // registrador -> RAM
+            case 2: { // registrador -> Memória
                 if(inst.add1 == 1) {
-                    Ram_setDado(ram, inst.add2, cpu->registrador1);
-                    printf("Inst copy_reg_ram -> RAM posicao %d com conteudo %d\n", inst.add2, cpu->registrador1);
+                    MMU_escrever(mmu, inst.add2, cpu->registrador1);
+                    //printf("Inst copy_reg_mem -> Posicao %d recebe Reg1 (%d)\n", inst.add2, cpu->registrador1);
                 } else if(inst.add1 == 2) {
-                    Ram_setDado(ram, inst.add2, cpu->registrador2);
-                    printf("Inst copy_reg_ram -> RAM posicao %d com conteudo %d\n", inst.add2, cpu->registrador2);
+                    MMU_escrever(mmu, inst.add2, cpu->registrador2);
+                    //printf("Inst copy_reg_mem -> Posicao %d recebe Reg2 (%d)\n", inst.add2, cpu->registrador2);
                 }
                 cpu->PC++;
                 break;
             }
-            case 3: { // RAM -> registrador
+            case 3: { // Memória -> registrador
                 if(inst.add1 == 1) {
-                    cpu->registrador1 = Ram_getDado(ram, inst.add2);
-                    printf("Inst copy_ram_reg -> Registrador1 com conteudo %d\n", cpu->registrador1);
+                    cpu->registrador1 = MMU_buscar(mmu, inst.add2);
+                    //printf("Inst copy_mem_reg -> Reg1 recebe conteudo %d\n", cpu->registrador1);
                 } else if(inst.add1 == 2) {
-                    cpu->registrador2 = Ram_getDado(ram, inst.add2);
-                    printf("Inst copy_ram_reg -> Registrador2 com conteudo %d\n", cpu->registrador2);
+                    cpu->registrador2 = MMU_buscar(mmu, inst.add2);
+                    //printf("Inst copy_mem_reg -> Reg2 recebe conteudo %d\n", cpu->registrador2);
                 }
                 cpu->PC++;
                 break;
             }
-            case 4: { // valor imediato -> registrador
+            case 4: { // Imediato -> Registrador
+                // (Não muda nada, pois não acessa memória)
                 if(inst.add1 == 1) {
                     cpu->registrador1 = inst.add2;
-                    printf("Inst copy_ext_reg -> Registrador1 com conteudo %d\n", cpu->registrador1);
+                    //printf("Inst copy_ext_reg -> Registrador1 com conteudo %d\n", cpu->registrador1);
                 } else if(inst.add1 == 2) {
                     cpu->registrador2 = inst.add2;
-                    printf("Inst copy_ext_reg -> Registrador2 com conteudo %d\n", cpu->registrador2);
+                    //printf("Inst copy_ext_reg -> Registrador2 com conteudo %d\n", cpu->registrador2);
                 }
                 cpu->PC++;
                 break;
             }
-            case 5: { // registrador -> instrução (modifica programa)
+            case 5: { // Modificação de Instrução (Output)
+                // (Não muda nada, altera o próprio vetor de programa)
                 if(inst.add1 == 1) {
                     cpu->programa[cpu->PC].add2 = cpu->registrador1;
-                    printf("Inst obtain_reg -> Registrador1 com conteudo %d\n", cpu->registrador1);
+                    //printf("Inst obtain_reg -> Registrador1 com conteudo %d\n", cpu->registrador1);
                 } else if(inst.add1 == 2) {
                     cpu->programa[cpu->PC].add2 = cpu->registrador2;
-                    printf("Inst obtain_reg -> Registrador2 com conteudo %d\n", cpu->registrador2);
+                    //printf("Inst obtain_reg -> Registrador2 com conteudo %d\n", cpu->registrador2);
                 }
                 cpu->PC++;
                 break;
             }
             default: {
-                printf("Instrucao desconhecida: %d\n", cpu->opcode);
+                //printf("Instrucao desconhecida: %d\n", cpu->opcode);
                 cpu->PC++;
                 break;
             }

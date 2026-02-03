@@ -4,6 +4,7 @@
 #include"ram.h"
 #include"instrucao.h"
 #include"cpu.h"
+#include "mmu.h"
 
 typedef struct cpu{
 
@@ -17,7 +18,7 @@ typedef struct cpu{
 Cpu* CPU_criar();
 void CPU_liberar(Cpu* cpu);
 void CPU_setPrograma(Cpu* cpu, Instrucao* programaAux);
-void CPU_iniciar(Cpu* cpu, Ram* ram);
+void CPU_iniciar(Cpu* cpu, MMU* mmu);
 void CPU_reset(Cpu* cpu);
 int CPU_getRegistrador(Cpu *cpu, int indice);
 
