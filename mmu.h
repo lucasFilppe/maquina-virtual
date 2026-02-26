@@ -44,6 +44,7 @@ typedef struct {
 
 // Funções
 MMU* MMU_criar(int sizeRAM, int sizeL1, int sizeL2, int sizeL3);
+bool inserirExclusivo(Cache* c, LinhaCache* bloco, LinhaCache* vitima);
 int MMU_buscar(MMU* mmu, int enderecoFisico);
 void MMU_escrever(MMU* mmu, int enderecoFisico, int valor);
 void MMU_liberar(MMU* mmu);

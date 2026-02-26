@@ -191,51 +191,92 @@ int buscarEmCache(Cache* c, int tagBloco) {
  * Simula a hierarquia de memória em cascata: L1 -> L2 -> L3 -> RAM.
  */
 int MMU_buscar(MMU* mmu, int enderecoFisico) {
-    // Calcula qual é o bloco e qual a palavra dentro do bloco (Offset)
+
     int tagBloco = enderecoFisico / TAM_BLOCO;
     int offset = enderecoFisico % TAM_BLOCO;
-    
-    // --- Nível 1: Cache L1 (Mais rápida) ---
-    int idx = buscarEmCache(mmu->l1, tagBloco);
+
+    int idx;
+
+    // =========================
+    // 🔵 1) L1
+    // =========================
+    idx = buscarEmCache(mmu->l1, tagBloco);
     if (idx != -1) {
-        mmu->l1->hits++; // Estatística
+        mmu->l1->hits++;
         return mmu->l1->linhas[idx].palavras[offset];
     }
-    mmu->l1->misses++; // Não achou na L1
+    mmu->l1->misses++;
 
-    // --- Nível 2: Cache L2 ---
+    // =========================
+    // 🟡 2) L2
+    // =========================
     idx = buscarEmCache(mmu->l2, tagBloco);
     if (idx != -1) {
+
         mmu->l2->hits++;
-        // Propriedade de Inclusão: Se achou na L2, copia para a L1
-        copiarBlocoParaCache(mmu->l1, &mmu->l2->linhas[idx]);
-        return mmu->l2->linhas[idx].palavras[offset];
+
+        LinhaCache bloco = mmu->l2->linhas[idx];
+        mmu->l2->linhas[idx].valido = false; // REMOVE da L2
+
+        LinhaCache vitimaL1;
+
+        if (inserirExclusivo(mmu->l1, &bloco, &vitimaL1)) {
+            // L1 expulsou alguém → vai para L2
+            LinhaCache vitimaL2;
+            if (inserirExclusivo(mmu->l2, &vitimaL1, &vitimaL2)) {
+                // L2 expulsou → vai para L3
+                LinhaCache vitimaL3;
+                if (inserirExclusivo(mmu->l3, &vitimaL2, &vitimaL3)) {
+                    // L3 expulsou → volta para RAM
+                    mmu->ram->blocos[vitimaL3.endBloco] = vitimaL3;
+                }
+            }
+        }
+
+        return bloco.palavras[offset];
     }
     mmu->l2->misses++;
 
-    // --- Nível 3: Cache L3 ---
+    // =========================
+    // 🟠 3) L3
+    // =========================
     idx = buscarEmCache(mmu->l3, tagBloco);
     if (idx != -1) {
+
         mmu->l3->hits++;
-        // Propriedade de Inclusão: Sobe para L2 e L1
-        copiarBlocoParaCache(mmu->l2, &mmu->l3->linhas[idx]);
-        copiarBlocoParaCache(mmu->l1, &mmu->l3->linhas[idx]);
-        return mmu->l3->linhas[idx].palavras[offset];
+
+        LinhaCache bloco = mmu->l3->linhas[idx];
+        mmu->l3->linhas[idx].valido = false; // REMOVE da L3
+
+        LinhaCache vitimaL2;
+
+        if (inserirExclusivo(mmu->l2, &bloco, &vitimaL2)) {
+
+            LinhaCache vitimaL3;
+            if (inserirExclusivo(mmu->l3, &vitimaL2, &vitimaL3)) {
+                mmu->ram->blocos[vitimaL3.endBloco] = vitimaL3;
+            }
+        }
+
+        // Agora sobe para L1
+        return MMU_buscar(mmu, enderecoFisico);
     }
     mmu->l3->misses++;
 
-    // --- Nível 4: RAM (Memória Principal) ---
-    // Se chegou aqui, é um Miss total. Busca na fonte original.
-    if (tagBloco >= mmu->ram->tamanho) return 0; // Proteção de limites
-    
-    LinhaCache* blocoRam = &mmu->ram->blocos[tagBloco];
-    
-    // Traz o dado da RAM preenchendo todas as caches (Princípio da Localidade)
-    copiarBlocoParaCache(mmu->l3, blocoRam);
-    copiarBlocoParaCache(mmu->l2, blocoRam);
-    copiarBlocoParaCache(mmu->l1, blocoRam);
-    
-    return blocoRam->palavras[offset];
+    // =========================
+    // 🔴 4) RAM (Miss Total)
+    // =========================
+    if (tagBloco >= mmu->ram->tamanho) return 0;
+
+    LinhaCache bloco = mmu->ram->blocos[tagBloco];
+
+    LinhaCache vitimaL3;
+
+    if (inserirExclusivo(mmu->l3, &bloco, &vitimaL3)) {
+        mmu->ram->blocos[vitimaL3.endBloco] = vitimaL3;
+    }
+
+    return MMU_buscar(mmu, enderecoFisico);
 }
 
 /**
@@ -272,6 +313,27 @@ void MMU_escrever(MMU* mmu, int enderecoFisico, int valor) {
         mmu->l3->linhas[idx].palavras[offset] = valor;
         atualizaCustos(mmu->l3, idx);
     }
+}
+
+// Insere e retorna vítima se houve substituição
+// Retorna true se houve vítima
+bool inserirExclusivo(Cache* c, LinhaCache* bloco, LinhaCache* vitima) {
+
+    int idx = obterIndiceParaSubstituir(c);
+
+    bool houveVitima = c->linhas[idx].valido;
+
+    if (houveVitima) {
+        *vitima = c->linhas[idx]; // guarda vítima
+    }
+
+    c->linhas[idx] = *bloco;
+    c->linhas[idx].valido = true;
+
+    if (POLITICA == 0)
+        atualizaCustos(c, idx);
+
+    return houveVitima;
 }
 
 // Libera toda a memória alocada pelo simulador
