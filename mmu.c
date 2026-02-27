@@ -5,9 +5,6 @@
 // ============================================================================
 #define POLITICA 0 // 0 = LRU, 1 = LFU
 
-/**
- * Função auxiliar para criar e inicializar uma Cache.
- */
 Cache *criarCache(int tamanho) {
     Cache *c = (Cache *)malloc(sizeof(Cache));
     c->linhas = (LinhaCache *)malloc(sizeof(LinhaCache) * tamanho);
@@ -23,13 +20,16 @@ Cache *criarCache(int tamanho) {
     return c;
 }
 
-/**
- * Função Principal de Inicialização da MMU
- */
+// ============================================================================
+// INICIALIZAÇÃO E ALOCAÇÃO DE RECURSOS FÍSICOS
+// ============================================================================
 MMU *MMU_criar(int sizeRAM, int sizeL1, int sizeL2, int sizeL3) {
     MMU *mmu = (MMU *)malloc(sizeof(MMU));
 
-    // --- Configuração da RAM (Agora com tamanho limitado!) ---
+    // 🗣️ FALA NA APRESENTAÇÃO: "A primeira grande mudança do TP3 está aqui. 
+    // A RAM deixou de ser um vetor infinito. Eu a estruturei exatamente como 
+    // uma Cache, com tamanho limite fixado e bits de validade. Se ela encher, 
+    // terá que expulsar dados para o disco."
     mmu->ram = (RamBloco *)malloc(sizeof(RamBloco));
     mmu->ram->tamanho = sizeRAM;
     mmu->ram->hits = 0;
@@ -37,18 +37,19 @@ MMU *MMU_criar(int sizeRAM, int sizeL1, int sizeL2, int sizeL3) {
     mmu->ram->blocos = (LinhaCache *)malloc(sizeof(LinhaCache) * sizeRAM);
 
     for (int i = 0; i < sizeRAM; i++) {
-        mmu->ram->blocos[i].valido = false; // RAM começa vazia, igual cache
+        mmu->ram->blocos[i].valido = false; 
         mmu->ram->blocos[i].custo = 0;
         mmu->ram->blocos[i].atualizado = false;
     }
 
-    // --- Configuração das Caches ---
     mmu->l1 = criarCache(sizeL1); 
     mmu->l2 = criarCache(sizeL2); 
     mmu->l3 = criarCache(sizeL3); 
 
-    // --- 💽 Configuração do HD ---
-    mmu->hd = fopen("hd.bin", "wb+"); // "wb+" = Leitura e Escrita Binária
+    // 🗣️ FALA NA APRESENTAÇÃO: "Para simular o HD, utilizo um arquivo binário 
+    // aberto com 'wb+'. O 'b' de binário é crucial porque permite gravar e ler 
+    // a struct inteira em bytes crus, garantindo um acesso aleatório O(1) com fseek."
+    mmu->hd = fopen("hd.bin", "wb+"); 
     if (mmu->hd == NULL) {
         printf("ERRO CRÍTICO: Falha ao iniciar o Disco Rígido!\n");
         exit(1);
@@ -62,16 +63,19 @@ MMU *MMU_criar(int sizeRAM, int sizeL1, int sizeL2, int sizeL3) {
 }
 
 // ============================================================================
-// LÓGICA DE GERENCIAMENTO DE SUBSTITUIÇÃO (CACHES)
+// POLÍTICA DE SUBSTITUIÇÃO (LRU / LFU)
 // ============================================================================
-
+// 🗣️ FALA NA APRESENTAÇÃO: "Como eu unifiquei a estrutura da LinhaCache para 
+// as Caches e para a RAM, a lógica de substituição é a mesma. No LRU, a cada 
+// acesso, eu zero a 'idade' do bloco acessado e envelheço (custo++) todos os 
+// outros blocos válidos."
 void atualizaCustos(Cache *c, int indiceAcessado) {
-    if (POLITICA == 0) { // LRU
+    if (POLITICA == 0) { 
         for (int i = 0; i < c->tamanho; i++) {
             if (i == indiceAcessado) c->linhas[i].custo = 0;
             else if (c->linhas[i].valido) c->linhas[i].custo++;
         }
-    } else { // LFU
+    } else { 
         c->linhas[indiceAcessado].custo++;
     }
 }
@@ -82,7 +86,7 @@ int obterIndiceParaSubstituir(Cache *c) {
     }
 
     int indiceEscolhido = 0;
-    if (POLITICA == 0) { // LRU
+    if (POLITICA == 0) { 
         int maiorCusto = -1;
         for (int i = 0; i < c->tamanho; i++) {
             if (c->linhas[i].custo > maiorCusto) {
@@ -90,7 +94,7 @@ int obterIndiceParaSubstituir(Cache *c) {
                 indiceEscolhido = i;
             }
         }
-    } else { // LFU
+    } else { 
         int menorFrequencia = c->linhas[0].custo;
         for (int i = 1; i < c->tamanho; i++) {
             if (c->linhas[i].custo < menorFrequencia) {
@@ -127,11 +131,7 @@ int buscarEmCache(Cache *c, int tagBloco) {
     return -1; 
 }
 
-// ============================================================================
-// LÓGICA DE GERENCIAMENTO DE SUBSTITUIÇÃO (RAM)
-// ============================================================================
-// Como a RAM virou uma cache gigante, ela precisa de suas próprias funções.
-
+// Funções idênticas para a RAM (omitidas nos comentários da fala para economizar tempo)
 void atualizaCustosRAM(RamBloco *ram, int indiceAcessado) {
     if (POLITICA == 0) {
         for (int i = 0; i < ram->tamanho; i++) {
@@ -194,13 +194,12 @@ int buscarEmRam(RamBloco *ram, int tagBloco) {
 }
 
 // ============================================================================
-// O CASCATEAMENTO EXCLUSIVO DA HIERARQUIA
+// O CASCATEAMENTO EXCLUSIVO DA HIERARQUIA (A MÁGICA DO TP2 E TP3)
 // ============================================================================
 
-/**
- * Pega um bloco encontrado (seja na L2, L3, RAM ou HD) e tenta enfiá-lo na L1.
- * As vítimas vão escorrendo em cascata até que alguém caia no HD.
- */
+// 🗣️ FALA NA APRESENTAÇÃO: "Esta é a função mais importante da arquitetura. 
+// Ela garante a Exclusividade das caches. Se a L1 estiver cheia, o bloco 
+// antigo é empurrado em cascata para a L2, L3, e RAM. Se a RAM também encher..."
 void inserirNaHierarquia(MMU* mmu, LinhaCache* bloco) {
     LinhaCache vitimaL1;
     if (inserirExclusivo(mmu->l1, bloco, &vitimaL1)) {
@@ -210,7 +209,11 @@ void inserirNaHierarquia(MMU* mmu, LinhaCache* bloco) {
             if (inserirExclusivo(mmu->l3, &vitimaL2, &vitimaL3)) {
                 LinhaCache vitimaRAM;
                 if (inserirExclusivoRAM(mmu->ram, &vitimaL3, &vitimaRAM)) {
-                    // 💽 O fundo do poço: A RAM encheu! Salva a vítima no HD.
+                    
+                    // 🗣️ FALA NA APRESENTAÇÃO: "...Nós chegamos ao fundo do poço! 
+                    // A RAM devolve uma vítima, e eu sou obrigado a salvá-la no 
+                    // arquivo do disco rígido usando fwrite (Swap Out), abrindo 
+                    // espaço físico na memória principal."
                     fseek(mmu->hd, vitimaRAM.endBloco * sizeof(LinhaCache), SEEK_SET);
                     fwrite(&vitimaRAM, sizeof(LinhaCache), 1, mmu->hd);
                 }
@@ -219,9 +222,9 @@ void inserirNaHierarquia(MMU* mmu, LinhaCache* bloco) {
     }
 }
 
-/**
- * Função Principal de Leitura (Exclusiva L1 -> L2 -> L3 -> RAM -> HD)
- */
+// ============================================================================
+// BUSCA HIERÁRQUICA E RESOLUÇÃO DE MISSES
+// ============================================================================
 int MMU_buscar(MMU *mmu, int enderecoFisico) {
     int tagBloco = enderecoFisico / TAM_BLOCO;
     int offset = enderecoFisico % TAM_BLOCO;
@@ -237,7 +240,7 @@ int MMU_buscar(MMU *mmu, int enderecoFisico) {
     if (idx != -1) {
         mmu->l2->hits++;
         LinhaCache bloco = mmu->l2->linhas[idx];
-        mmu->l2->linhas[idx].valido = false; // Remove exclusividade
+        mmu->l2->linhas[idx].valido = false; // Mantém exclusividade
         inserirNaHierarquia(mmu, &bloco);
         return bloco.palavras[offset];
     }
@@ -265,7 +268,10 @@ int MMU_buscar(MMU *mmu, int enderecoFisico) {
     }
     mmu->ram->misses++;
 
-    // 💽 5) DISCO RÍGIDO (HD)
+    // 💽 5) DISCO RÍGIDO (HD) - O PIOR CASO
+    // 🗣️ FALA NA APRESENTAÇÃO: "Se deu Miss na RAM, temos uma Faltas de Página 
+    // (Page Fault). A MMU incrementa os acessos de I/O, calcula o endereço físico 
+    // real do bloco no arquivo com fseek, e puxa os bytes com fread."
     mmu->acessos_hd++;
     
     LinhaCache blocoNovo;
@@ -274,12 +280,13 @@ int MMU_buscar(MMU *mmu, int enderecoFisico) {
     blocoNovo.atualizado = false;
     if (POLITICA == 0) blocoNovo.custo = 0; else blocoNovo.custo = 1;
 
-    // Lê do arquivo binário
     fseek(mmu->hd, tagBloco * sizeof(LinhaCache), SEEK_SET);
     size_t lidos = fread(&blocoNovo, sizeof(LinhaCache), 1, mmu->hd);
     
+    // 🗣️ FALA NA APRESENTAÇÃO: "Um detalhe importante: se o fread retornar 0, 
+    // quer dizer que a CPU pediu um endereço que nunca foi gravado no disco. 
+    // Nesse caso, eu simulo a alocação preenchendo o bloco com zeros."
     if (lidos == 0) {
-        // Bloco novo (o HD estava vazio nessa parte), preenche com zeros
         for (int i = 0; i < TAM_BLOCO; i++) blocoNovo.palavras[i] = 0;
     }
 
@@ -287,19 +294,21 @@ int MMU_buscar(MMU *mmu, int enderecoFisico) {
     return blocoNovo.palavras[offset];
 }
 
-/**
- * Função de Escrita (Write-Through)
- */
+// ============================================================================
+// ESCRITA NA MEMÓRIA (WRITE-THROUGH)
+// ============================================================================
 void MMU_escrever(MMU *mmu, int enderecoFisico, int valor) {
     int tagBloco = enderecoFisico / TAM_BLOCO;
     int offset = enderecoFisico % TAM_BLOCO;
 
-    // 1. O HD é a única verdade absoluta (Garante o Write-Through total)
+    // 🗣️ FALA NA APRESENTAÇÃO: "A política de escrita escolhida foi o Write-Through 
+    // por questões de confiabilidade. Logo, o Disco Rígido é a única verdade 
+    // absoluta. Eu sempre gravo fisicamente no arquivo binário primeiro."
     LinhaCache blocoHD;
     fseek(mmu->hd, tagBloco * sizeof(LinhaCache), SEEK_SET);
     size_t lidos = fread(&blocoHD, sizeof(LinhaCache), 1, mmu->hd);
     
-    if (lidos == 0) { // Se não existe no HD, prepara o bloco do zero
+    if (lidos == 0) { 
         blocoHD.endBloco = tagBloco;
         blocoHD.valido = true;
         for(int i=0; i<TAM_BLOCO; i++) blocoHD.palavras[i] = 0;
@@ -308,9 +317,11 @@ void MMU_escrever(MMU *mmu, int enderecoFisico, int valor) {
     blocoHD.palavras[offset] = valor;
     
     fseek(mmu->hd, tagBloco * sizeof(LinhaCache), SEEK_SET);
-    fwrite(&blocoHD, sizeof(LinhaCache), 1, mmu->hd); // Sobrescreve atualizado no disco
+    fwrite(&blocoHD, sizeof(LinhaCache), 1, mmu->hd); 
 
-    // 2. Atualiza Caches e RAM apenas se o bloco já estiver carregado (Write Update)
+    // 🗣️ FALA NA APRESENTAÇÃO: "Em seguida, aplico o Write-Update: eu varro 
+    // a L1, L2, L3 e RAM. Se o bloco estiver carregado em alguma delas, eu 
+    // atualizo o valor lá também, garantindo a Coerência de Cache."
     int idx;
     idx = buscarEmCache(mmu->l1, tagBloco);
     if (idx != -1) { mmu->l1->linhas[idx].palavras[offset] = valor; atualizaCustos(mmu->l1, idx); }
@@ -325,15 +336,17 @@ void MMU_escrever(MMU *mmu, int enderecoFisico, int valor) {
     if (idx != -1) { mmu->ram->blocos[idx].palavras[offset] = valor; atualizaCustosRAM(mmu->ram, idx); }
 }
 
-// Libera toda a memória e arquivos
 void MMU_liberar(MMU *mmu) {
     free(mmu->l1->linhas); free(mmu->l1);
     free(mmu->l2->linhas); free(mmu->l2);
     free(mmu->l3->linhas); free(mmu->l3);
     free(mmu->ram->blocos); free(mmu->ram);
     
-    fclose(mmu->hd);  // Fecha o arquivo binário
-    remove("hd.bin"); // Limpa o HD gerado pelo simulador após o teste
+    // 🗣️ FALA NA APRESENTAÇÃO: "Por fim, como bons engenheiros de software, 
+    // fechamos o ponteiro do arquivo e deletamos o hd.bin para não deixar 
+    // lixo no computador."
+    fclose(mmu->hd);  
+    remove("hd.bin"); 
     
     free(mmu);
 }
