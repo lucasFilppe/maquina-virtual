@@ -16,10 +16,8 @@ typedef struct {
 void rodarSimulacao(Maquina m, int probRepeticao, int tamRAM, int qtdInstrucoes) {
     const char* nomeArquivo = "programa_temp.txt";
 
-    // 1. Gerar Instruções com a probabilidade específica
     gerarArquivoInstrucoes(nomeArquivo, qtdInstrucoes, tamRAM, probRepeticao);
 
-    // 2. Carregar Programa
     int qtdLidas;
     Instrucao* programa = lerArquivoInstrucoes(nomeArquivo, &qtdLidas);
     if (!programa) {
@@ -27,37 +25,61 @@ void rodarSimulacao(Maquina m, int probRepeticao, int tamRAM, int qtdInstrucoes)
         return;
     }
 
-    // 3. Inicializar Hardware com as configurações da Máquina atual (M1, M2...)
     MMU* mmu = MMU_criar(tamRAM, m.l1, m.l2, m.l3);
     Cpu* cpu = CPU_criar();
 
-    // 4. Executar
     CPU_setPrograma(cpu, programa);
     CPU_iniciar(cpu, mmu);
 
-    // 5. Coletar Estatísticas
-    int totalL1 = mmu->l1->hits + mmu->l1->misses;
-    int totalL2 = mmu->l2->hits + mmu->l2->misses;
-    int totalL3 = mmu->l3->hits + mmu->l3->misses;
+    // =============================
+    // ACESSOS REAIS
+    // =============================
 
-    float taxaL1 = (totalL1 > 0) ? ((float)mmu->l1->hits * 100.0 / totalL1) : 0.0;
-    float taxaL2 = (totalL2 > 0) ? ((float)mmu->l2->hits * 100.0 / totalL2) : 0.0;
-    float taxaL3 = (totalL3 > 0) ? ((float)mmu->l3->hits * 100.0 / totalL3) : 0.0;
-    
-    // Taxa RAM: Porcentagem do total de instruções que acabou indo na RAM
-    // (Considerando que tudo passa pela L1, usamos totalL1 como base ou o próprio L3 Misses)
-    // Para seguir a tabela do PDF, geralmente "Taxa RAM" é a % de acesso que chegou na RAM.
-    float taxaRAM = (totalL1 > 0) ? ((float)mmu->l3->misses * 100.0 / totalL1) : 0.0;
+    int totalAcessos = mmu->l1->hits + mmu->l1->misses;
 
-    // Custo Hipotético: L1=1, L2=10, L3=100, RAM=1000
-    long custo = (totalL1 * 1) + (totalL2 * 10) + (totalL3 * 100) + (mmu->l3->misses * 1000);
+    int acessosL2 = mmu->l1->misses;
+    int acessosL3 = mmu->l2->misses;
+    int acessosRAM = mmu->l3->misses;
 
-    // 6. Imprimir Linha da Tabela
-    // Formato: Maquina | L1 | L2 | L3 | Taxa L1 | Taxa L2 | Taxa L3 | Taxa RAM | Tempo
-    printf("| %-3s | %4d | %4d | %4d | %6.2f%% | %6.2f%% | %6.2f%% | %6.2f%% | %8ld |\n", 
-           m.nome, m.l1, m.l2, m.l3, taxaL1, taxaL2, taxaL3, taxaRAM, custo);
+    // =============================
+    // TAXAS CORRETAS
+    // =============================
 
-    // 7. Limpeza
+    float taxaL1 = (totalAcessos > 0)
+        ? ((float)mmu->l1->hits * 100.0 / totalAcessos)
+        : 0.0;
+
+    float taxaL2 = (acessosL2 > 0)
+        ? ((float)mmu->l2->hits * 100.0 / acessosL2)
+        : 0.0;
+
+    float taxaL3 = (acessosL3 > 0)
+        ? ((float)mmu->l3->hits * 100.0 / acessosL3)
+        : 0.0;
+
+    float taxaRAM = (totalAcessos > 0)
+        ? ((float)acessosRAM * 100.0 / totalAcessos)
+        : 0.0;
+
+    // =============================
+    // CUSTO CORRETO
+    // =============================
+
+    long custo = 0;
+
+    custo += totalAcessos * 1;          // Todo acesso passa na L1
+    custo += acessosL2 * 10;            // Só quem erra L1 vai pra L2
+    custo += acessosL3 * 100;           // Só quem erra L2 vai pra L3
+    custo += acessosRAM * 1000;         // Só quem erra L3 vai pra RAM
+
+    // =============================
+    // PRINT
+    // =============================
+
+    printf("| %-3s | %4d | %4d | %4d | %6.2f%% | %6.2f%% | %6.2f%% | %6.2f%% | %8ld |\n",
+           m.nome, m.l1, m.l2, m.l3,
+           taxaL1, taxaL2, taxaL3, taxaRAM, custo);
+
     CPU_liberar(cpu);
     MMU_liberar(mmu);
     free(programa);
