@@ -1,8 +1,6 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include "cpu.h"
-#include "instrucao.h"
-#include "mmu.h" // <--- MUDANÇA: Agora incluímos a MMU
 
 // A função de criação continua igual
 Cpu* CPU_criar() {
@@ -17,6 +15,7 @@ Cpu* CPU_criar() {
     cpu->PC = 0;
     cpu->opcode = 0;
     cpu->programa = NULL;
+    cpu->programa_ti = NULL; // Inicializa o TI como NULL
     
     return cpu;
 }
@@ -38,15 +37,85 @@ void CPU_liberar(Cpu* cpu) {
     }
 }
 
-void CPU_setPrograma(Cpu* cpu, Instrucao* programaAux) {
+void CPU_setPrograma(Cpu* cpu, Instrucao* programaAux, int tamanho) {
     if(cpu != NULL) {
         cpu->programa = programaAux;
+        cpu->tamanho_programa = tamanho;
     }
 }
 
-// --- MUDANÇA CRÍTICA AQUI ---
-// A CPU agora conversa com a MMU, não com a RAM direta
-void CPU_iniciar(Cpu* cpu, MMU* mmu) {
+// NOVA FUNÇÃO: Define o Tratador de Interrupções
+void CPU_setProgramaTI(Cpu* cpu, Instrucao* programaTI, int tamanho) {
+    if(cpu != NULL) {
+        cpu->programa_ti = programaTI;
+        cpu->tamanho_ti = tamanho;
+    }
+}
+
+// ============================================================================
+// EXECUÇÃO DE UMA ÚNICA INSTRUÇÃO (Modularizado)
+// ============================================================================
+// Extraímos o switch para uma função separada. Assim podemos reaproveitá-la
+// tanto para o programa principal quanto para o TI.
+void CPU_executar_instrucao(Cpu* cpu, MMU* mmu, Instrucao inst) {
+    
+    switch(cpu->opcode) {
+        case -1: { // halt
+            // O halt é tratado no laço principal
+            break;
+        }
+        case 0: { // soma
+            cpu->registrador1 = MMU_buscar(mmu, inst.add1);
+            cpu->registrador2 = MMU_buscar(mmu, inst.add2);
+            cpu->registrador1 += cpu->registrador2;
+            MMU_escrever(mmu, inst.add3, cpu->registrador1);
+            cpu->PC++;
+            break;
+        }
+        case 1: { // subtrai
+            cpu->registrador1 = MMU_buscar(mmu, inst.add1);
+            cpu->registrador2 = MMU_buscar(mmu, inst.add2);
+            cpu->registrador1 -= cpu->registrador2;
+            MMU_escrever(mmu, inst.add3, cpu->registrador1);
+            cpu->PC++;
+            break;
+        }
+        case 2: { // registrador -> Memória
+            if(inst.add1 == 1) MMU_escrever(mmu, inst.add2, cpu->registrador1);
+            else if(inst.add1 == 2) MMU_escrever(mmu, inst.add2, cpu->registrador2);
+            cpu->PC++;
+            break;
+        }
+        case 3: { // Memória -> registrador
+            if(inst.add1 == 1) cpu->registrador1 = MMU_buscar(mmu, inst.add2);
+            else if(inst.add1 == 2) cpu->registrador2 = MMU_buscar(mmu, inst.add2);
+            cpu->PC++;
+            break;
+        }
+        case 4: { // Imediato -> Registrador
+            if(inst.add1 == 1) cpu->registrador1 = inst.add2;
+            else if(inst.add1 == 2) cpu->registrador2 = inst.add2;
+            cpu->PC++;
+            break;
+        }
+        case 5: { // Modificação (Output)
+            // Aviso: Esta instrução altera o próprio vetor de programa.
+            // Para manter a sanidade da simulação, vamos ignorá-la ou apenas
+            // imprimir o valor se for o caso. O TP normalmente não a exige.
+            cpu->PC++;
+            break;
+        }
+        default: {
+            cpu->PC++;
+            break;
+        }
+    }
+}
+
+// ============================================================================
+// LAÇO PRINCIPAL COM INTERRUPÇÕES (TP3)
+// ============================================================================
+void CPU_iniciar(Cpu* cpu, MMU* mmu, int probInterrupcao) {
     
     if(cpu == NULL || mmu == NULL || cpu->programa == NULL) {
         printf("Parametros invalidos para CPU_iniciar\n");
@@ -55,96 +124,58 @@ void CPU_iniciar(Cpu* cpu, MMU* mmu) {
     
     CPU_reset(cpu);
     
+    // Executa enquanto não encontrar o opcode de parada (-1)
     while(cpu->opcode != -1) {
+        
+        // 1. Busca a próxima instrução do programa principal
         Instrucao inst = cpu->programa[cpu->PC];
         cpu->opcode = inst.opcode;
         
-        switch(cpu->opcode) {
-            case -1: { // halt
-                printf("Programa terminou!!\n");
-                break;
-            }
-            case 0: { // soma
-                // ANTES: Ram_getDado(ram, inst.add1);
-                // AGORA: A MMU procura nas Caches L1->L2->L3->RAM
-                cpu->registrador1 = MMU_buscar(mmu, inst.add1);
-                cpu->registrador2 = MMU_buscar(mmu, inst.add2);
+        if (cpu->opcode == -1) {
+            // Fim do programa principal
+            break;
+        }
+        
+        // 2. Executa a instrução
+        CPU_executar_instrucao(cpu, mmu, inst);
+        
+        // =======================================================
+        // 3. VERIFICAÇÃO DE INTERRUPÇÃO (O CORAÇÃO DO TP3)
+        // =======================================================
+        // Sorteia um número de 0 a 99
+        int sorteio = rand() % 100;
+        
+        // Se o número for menor que a probabilidade, a interrupção acontece!
+        if (sorteio < probInterrupcao && cpu->programa_ti != NULL) {
+            
+            // --- SALVAR O CONTEXTO ---
+            // Guardamos onde o programa principal parou
+            int pc_salvo = cpu->PC;
+            int opcode_salvo = cpu->opcode;
+            // Opcional: Salvar registradores se o TI for usar os mesmos e corrompê-los.
+            // Para o escopo deste TP, apenas o PC é estritamente necessário.
+            int reg1_salvo = cpu->registrador1;
+            int reg2_salvo = cpu->registrador2;
+            
+            // --- EXECUTAR O TRATADOR DE INTERRUPÇÃO (TI) ---
+            cpu->PC = 0; // O TI começa do início do seu próprio código
+            
+            // Roda o TI inteiro até acabar (ignorando opcodes de halt do TI se houver)
+            for (int i = 0; i < cpu->tamanho_ti; i++) {
+                Instrucao inst_ti = cpu->programa_ti[cpu->PC];
+                cpu->opcode = inst_ti.opcode;
                 
-                cpu->registrador1 += cpu->registrador2;
+                if (cpu->opcode == -1) break; // Sai se o TI tiver um halt
                 
-                // ANTES: Ram_setDado(ram, inst.add3, ...);
-                // AGORA: A MMU decide onde escrever (Write-Back ou Write-Through)
-                MMU_escrever(mmu, inst.add3, cpu->registrador1);
-                
-                //printf("Inst sum -> MMU escreveu na posicao %d o valor %d\n", inst.add3, cpu->registrador1);
-                cpu->PC++;
-                break;
+                CPU_executar_instrucao(cpu, mmu, inst_ti);
             }
-            case 1: { // subtrai
-                // Solicita dados à MMU
-                cpu->registrador1 = MMU_buscar(mmu, inst.add1);
-                cpu->registrador2 = MMU_buscar(mmu, inst.add2);
-                
-                cpu->registrador1 -= cpu->registrador2;
-                
-                // Salva via MMU
-                MMU_escrever(mmu, inst.add3, cpu->registrador1);
-                
-                //printf("Inst sub -> MMU escreveu na posicao %d o valor %d\n", inst.add3, cpu->registrador1);
-                cpu->PC++;
-                break;
-            }
-            case 2: { // registrador -> Memória
-                if(inst.add1 == 1) {
-                    MMU_escrever(mmu, inst.add2, cpu->registrador1);
-                    //printf("Inst copy_reg_mem -> Posicao %d recebe Reg1 (%d)\n", inst.add2, cpu->registrador1);
-                } else if(inst.add1 == 2) {
-                    MMU_escrever(mmu, inst.add2, cpu->registrador2);
-                    //printf("Inst copy_reg_mem -> Posicao %d recebe Reg2 (%d)\n", inst.add2, cpu->registrador2);
-                }
-                cpu->PC++;
-                break;
-            }
-            case 3: { // Memória -> registrador
-                if(inst.add1 == 1) {
-                    cpu->registrador1 = MMU_buscar(mmu, inst.add2);
-                    //printf("Inst copy_mem_reg -> Reg1 recebe conteudo %d\n", cpu->registrador1);
-                } else if(inst.add1 == 2) {
-                    cpu->registrador2 = MMU_buscar(mmu, inst.add2);
-                    //printf("Inst copy_mem_reg -> Reg2 recebe conteudo %d\n", cpu->registrador2);
-                }
-                cpu->PC++;
-                break;
-            }
-            case 4: { // Imediato -> Registrador
-                // (Não muda nada, pois não acessa memória)
-                if(inst.add1 == 1) {
-                    cpu->registrador1 = inst.add2;
-                    //printf("Inst copy_ext_reg -> Registrador1 com conteudo %d\n", cpu->registrador1);
-                } else if(inst.add1 == 2) {
-                    cpu->registrador2 = inst.add2;
-                    //printf("Inst copy_ext_reg -> Registrador2 com conteudo %d\n", cpu->registrador2);
-                }
-                cpu->PC++;
-                break;
-            }
-            case 5: { // Modificação de Instrução (Output)
-                // (Não muda nada, altera o próprio vetor de programa)
-                if(inst.add1 == 1) {
-                    cpu->programa[cpu->PC].add2 = cpu->registrador1;
-                    //printf("Inst obtain_reg -> Registrador1 com conteudo %d\n", cpu->registrador1);
-                } else if(inst.add1 == 2) {
-                    cpu->programa[cpu->PC].add2 = cpu->registrador2;
-                    //printf("Inst obtain_reg -> Registrador2 com conteudo %d\n", cpu->registrador2);
-                }
-                cpu->PC++;
-                break;
-            }
-            default: {
-                //printf("Instrucao desconhecida: %d\n", cpu->opcode);
-                cpu->PC++;
-                break;
-            }
+            
+            // --- RESTAURAR O CONTEXTO ---
+            // Devolve a CPU ao estado em que estava antes do "raio cair"
+            cpu->PC = pc_salvo;
+            cpu->opcode = opcode_salvo;
+            cpu->registrador1 = reg1_salvo;
+            cpu->registrador2 = reg2_salvo;
         }
     }
 }
